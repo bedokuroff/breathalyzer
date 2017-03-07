@@ -6,31 +6,39 @@
 class BreathalyzerWorker
 {
     /**
+     * Vocabulary processed with groups and needed structure
+     *
      * @var array
      */
     private $extendedVocabulary;
 
     /**
+     * Just an array of words, like provided in a vocabulary file
+     *
      * @var array
      */
     private $rawVocabulary;
 
     /**
+     * Input words
+     *
      * @var array
      */
     private $inputArray;
 
     /**
+     * Offset, roughly equals maximum Levenshtein distance / 2
+     *
      * @var int
      */
-    private $maxDistance;
+    private $maxOffset;
 
     /**
-     * @param int $maxDistance Maximum Levenshtein distance
+     * @param int $maxOffset
      */
-    public function __construct($maxDistance)
+    public function __construct($maxOffset)
     {
-        $this->maxDistance = $maxDistance;
+        $this->maxOffset = $maxOffset;
     }
 
     /**
@@ -51,17 +59,21 @@ class BreathalyzerWorker
         }
         fclose($handle);
 
+        // we process the words here - we split them into the groups by length
+        // each group contains words of some fixed length and arrays with words of
+        // other lengths, based on $maxOffset (shorter and longer) for the search to be widened
         for ($i = 1; $i < $maxLength; $i++) {
-            $groupedArray = array_merge(
-                isset($words[$i]) ? $words[$i] : [],
-                isset($words[$i - 1]) ? $words[$i - 1] : [],
-                isset($words[$i + 1]) ? $words[$i + 1] : [],
-                isset($words[$i - 2]) ? $words[$i - 2] : [],
-                isset($words[$i + 2]) ? $words[$i + 2] : []
-            );
-            foreach ($groupedArray as $item) {
-                $this->extendedVocabulary[$i][$item[0]][] = $item;
+            $groups[0] = isset($words[$i]) ? $words[$i] : [];
+            for ($j = 1; $j <= $this->maxOffset; $j++) {
+                $groups[$j] = [];
+                if (isset($words[$i - $j])) {
+                    $groups[$j] = array_merge($groups[$j], $words[$i-$j]);
+                }
+                if (isset($words[$i + $j])) {
+                    $groups[$j] = array_merge($groups[$j], $words[$i+$j]);
+                }
             }
+            $this->extendedVocabulary[$i] = $groups;
         }
     }
 
@@ -74,9 +86,6 @@ class BreathalyzerWorker
         $this->inputArray = preg_split('/\s+/', trim($inputString));
     }
 
-    /**
-     * Main processing function
-     */
     public function processText()
     {
         if (empty($this->rawVocabulary)) {
@@ -84,7 +93,7 @@ class BreathalyzerWorker
         }
         $changesCount = 0;
         $outputArray = [];
-        $start = microtime(true);
+        // $start = microtime(true);
         foreach ($this->inputArray as $inputWord) {
             // maybe it is cached already?
             if (isset($outputArray[$inputWord])) {
@@ -96,48 +105,50 @@ class BreathalyzerWorker
                 $outputArray[$inputWord] = 0;
                 continue;
             }
-            // and here we go with the vocabulary
+            // and here we go with the vocabulary search
             $outputArray[$inputWord] = $this->doLevenshteinCheck($inputWord);
             // we cache the changes amount for the word
             $changesCount += $outputArray[$inputWord];
         }
 
-        $end = microtime(true) - $start;
-        echo 'Execution time: '.$end.' seconds';
-        echo "\n";
-        echo 'Changes done: '.$changesCount;
-        echo "\n";
+//        $end = microtime(true) - $start;
+//        echo 'Execution time: '.$end.' seconds';
+//        echo "\n";
+//        echo 'Changes done: '.$changesCount;
+//        echo "\n";
+        return $changesCount;
     }
 
+    /**
+     * @param $inputWord
+     * @return int|null
+     */
     private function doLevenshteinCheck($inputWord)
     {
-        $minDistance = $this->maxDistance + 1; // initialize - just to be sure we won't get value larger than that
+        $allowedDistance = 1; // we'll start from this value, and then expand if nothing is found in an iteration
+        $minFoundDistance = 999; // just an orbitrary big value to initialize variable and avoid initializing in the loop below
         $inputLength = strlen($inputWord);
-        $firstLetter = $inputWord[0];
-        // we optimize the only optimizable thing here - we allow the cycle to find the closest match (distance = 1) as fast as possible
-        // first of all we search through the words beginning with the same letter (improvement - 0.2-0.3 seconds here)
-        foreach($this->extendedVocabulary[$inputLength][$firstLetter] as $vocabWord) {
-            $levDistance = levenshtein($inputWord, $vocabWord);
-            if ($levDistance == 1) { // this is a minimum possible result (closest match), no need to look further
-                return $levDistance;
-            }
+
+        for ($i = 0; $i <= $this->maxOffset; $i++) {
+           if (!empty ($this->extendedVocabulary[$inputLength][$i])) {
+               foreach($this->extendedVocabulary[$inputLength][$i] as $vocabWord) {
+                   $levDistance = levenshtein($inputWord, $vocabWord);
+                   if ($levDistance === 1) {
+                       return $levDistance; // the special case - the closest match, return it immediately
+                   }
+                   if ($levDistance < $minFoundDistance) {
+                       $minFoundDistance = $levDistance;
+                   }
+               }
+               // we don't want values which are at greater distance than allowed - maybe they will be found in next iterations
+               if ($minFoundDistance <= $allowedDistance) {
+                   return $minFoundDistance;
+               }
+           }
+           $allowedDistance++;
         }
 
-        // then we search throught the rest of letters
-        foreach ($this->extendedVocabulary[$inputLength] as $letter => $letterArray) {
-            if ($letter === $firstLetter) {
-                continue;
-            }
-            foreach ($letterArray as $vocabWord) {
-                $levDistance = levenshtein($inputWord, $vocabWord);
-                if ($levDistance === 1) { // this is a minimum possible result (closest match), no need to look further
-                    return $levDistance;
-                }
-                if ($levDistance < $minDistance) {
-                    $minDistance = $levDistance;
-                }
-            }
-        }
-        return $minDistance;
+        // if $this->maxOffset is high enough, this should not happen
+        return null;
     }
 }
