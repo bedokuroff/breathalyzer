@@ -50,12 +50,14 @@ class BreathalyzerWorker
             }
         }
         fclose($handle);
-        $this->maxOffset = $maxLength; // this consumes more memory, but allows to avoid misses
+        // this consumes more memory, but allows to avoid misses, no use to make it  greater
+        // than the largest word
+        $this->maxOffset = $maxLength;
 
         // we process the words here - we split them into the groups by length
         // each group contains words of some fixed length and arrays with words of
         // other lengths, based on $maxOffset (shorter and longer) for the search to be widened
-        for ($i = 1; $i < $maxLength; $i++) {
+        for ($i = 1; $i <= $maxLength; $i++) {
             $groups[0] = isset($words[$i]) ? $words[$i] : [];
             for ($j = 1; $j <= $this->maxOffset; $j++) {
                 $groups[$j] = [];
@@ -115,6 +117,11 @@ class BreathalyzerWorker
         $allowedDistance = 1; // we'll start from this value, and then expand if nothing is found in an iteration
         $minFoundDistance = 999; // just an orbitrary big value to initialize variable and avoid initializing in the loop below
         $inputLength = strlen($inputWord);
+        // the special case - those really long words
+        if ($inputLength > $this->maxOffset) {
+            $allowedDistance = $inputLength - $this->maxOffset;
+            $inputLength = $this->maxOffset - 1;
+        }
 
         for ($i = 0; $i <= $this->maxOffset; $i++) {
            if (!empty ($this->extendedVocabulary[$inputLength][$i])) {
@@ -135,7 +142,15 @@ class BreathalyzerWorker
            $allowedDistance++;
         }
 
+        // if nothing was found, we search the whole vocabulary without optimization, but this should not happen normally
+        foreach ($this->rawVocabulary as $vocabWord) {
+            $levDistance = levenshtein($inputWord, $vocabWord);
+            if ($levDistance < $minFoundDistance) {
+                $minFoundDistance = $levDistance;
+            }
+        }
+
         // if $this->maxOffset is high enough, this should not happen
-        return null;
+        return $minFoundDistance;
     }
 }
