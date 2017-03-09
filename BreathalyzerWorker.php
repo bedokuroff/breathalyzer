@@ -34,14 +34,6 @@ class BreathalyzerWorker
     private $maxOffset;
 
     /**
-     * @param int $maxOffset
-     */
-    public function __construct($maxOffset)
-    {
-        $this->maxOffset = $maxOffset;
-    }
-
-    /**
      * @param string $filename Path to file with vocabulary
      */
     public function loadVocabulary($filename)
@@ -58,6 +50,7 @@ class BreathalyzerWorker
             }
         }
         fclose($handle);
+        $this->maxOffset = $maxLength; // this consumes more memory, but allows to avoid misses
 
         // we process the words here - we split them into the groups by length
         // each group contains words of some fixed length and arrays with words of
@@ -93,7 +86,6 @@ class BreathalyzerWorker
         }
         $changesCount = 0;
         $outputArray = [];
-        // $start = microtime(true);
         foreach ($this->inputArray as $inputWord) {
             // maybe it is cached already?
             if (isset($outputArray[$inputWord])) {
@@ -111,11 +103,6 @@ class BreathalyzerWorker
             $changesCount += $outputArray[$inputWord];
         }
 
-//        $end = microtime(true) - $start;
-//        echo 'Execution time: '.$end.' seconds';
-//        echo "\n";
-//        echo 'Changes done: '.$changesCount;
-//        echo "\n";
         return $changesCount;
     }
 
